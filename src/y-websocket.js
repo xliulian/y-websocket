@@ -102,7 +102,7 @@ const setupWS = provider => {
         websocket.send(encoding.toUint8Array(encoder))
       }
     }
-    websocket.onclose = () => {
+    websocket.onclose = (event) => {
       provider.ws = null
       provider.wsconnecting = false
       if (provider.wsconnected) {
@@ -111,10 +111,15 @@ const setupWS = provider => {
         // update awareness (all users except local left)
         awarenessProtocol.removeAwarenessStates(provider.awareness, Array.from(provider.awareness.getStates().keys()).filter(client => client !== provider.doc.clientID), provider)
         provider.emit('status', [{
-          status: 'disconnected'
+          status: 'disconnected',
+          wsEvent: event
         }])
       } else {
         provider.wsUnsuccessfulReconnects++
+        provider.emit('status', [{
+          status: 'connection-error',
+          wsEvent: event
+        }])
       }
       // Start with no reconnect timeout and increase timeout by
       // log10(wsUnsuccessfulReconnects).
