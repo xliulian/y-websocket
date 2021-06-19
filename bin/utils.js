@@ -144,17 +144,35 @@ class WSSharedDoc extends Y.Doc {
  * @param {boolean} gc - whether to allow gc on the doc (applies only when created)
  * @return {WSSharedDoc}
  */
-const getYDoc = (docname, gc = true) => map.setIfUndefined(docs, docname, () => {
-  const doc = new WSSharedDoc(docname)
-  doc.gc = gc
-  if (persistence !== null) {
-    persistence.bindState(docname, doc)
-  }
-  docs.set(docname, doc)
+const getYDoc = (docname, gc = true) => {
+  const doc = map.setIfUndefined(docs, docname, () => {
+    const doc = new WSSharedDoc(docname)
+    doc.gc = gc
+    doc.refCount = 0
+    if (persistence !== null) {
+      doc.loading = persistence.bindState(docname, doc) // keep the promise so we can await it if required.
+    }
+    docs.set(docname, doc)
+    return doc
+  })
+  doc.refCount++
   return doc
-})
+}
 
 exports.getYDoc = getYDoc
+
+const unrefYDoc = (doc) => {
+  doc.refCount--
+  if (doc.refCount <= 0 && doc.conns.size === 0 && persistence !== null) {
+    // if persisted, we store state and destroy ydocument
+    persistence.writeState(doc.name, doc).then(() => {
+      doc.destroy()
+    })
+    docs.delete(doc.name)
+  }
+}
+
+exports.unrefYDoc = unrefYDoc
 
 /**
  * @param {any} conn
@@ -193,13 +211,7 @@ const closeConn = (doc, conn) => {
     const controlledIds = doc.conns.get(conn)
     doc.conns.delete(conn)
     awarenessProtocol.removeAwarenessStates(doc.awareness, Array.from(controlledIds), null)
-    if (doc.conns.size === 0 && persistence !== null) {
-      // if persisted, we store state and destroy ydocument
-      persistence.writeState(doc.name, doc).then(() => {
-        doc.destroy()
-      })
-      docs.delete(doc.name)
-    }
+    unrefYDoc(doc)
   }
   conn.close()
 }
